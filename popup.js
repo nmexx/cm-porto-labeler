@@ -43,7 +43,7 @@ btnStart.addEventListener("click", () => {
     btnDownload.disabled = true;
     btnLabels.disabled = true;
     warning.style.display = "none";
-    setStatus('<span class="spinner"></span> Starte Scraping…');
+    setStatusSpinner("Starte Scraping…");
     browser.runtime.sendMessage({ type: "START_SCRAPING", tabId: tabs[0].id });
   });
 });
@@ -69,7 +69,15 @@ browser.runtime.onMessage.addListener((msg) => {
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
-function setStatus(html) { statusText.innerHTML = html; }
+function setStatus(text) { statusText.textContent = text; }
+
+function setStatusSpinner(text) {
+  statusText.replaceChildren();
+  const spinner = document.createElement("span");
+  spinner.className = "spinner";
+  statusText.appendChild(spinner);
+  statusText.appendChild(document.createTextNode(" " + text));
+}
 
 function setProgress(done, total) {
   progressWrap.style.display = "block";
@@ -82,7 +90,7 @@ function setRunningUI(done, total) {
   btnStart.disabled = true;
   btnDownload.disabled = true;
   btnLabels.disabled = true;
-  setStatus('<span class="spinner"></span> Scraping läuft…');
+  setStatusSpinner("Scraping läuft…");
   if (total > 0) setProgress(done, total);
 }
 
@@ -92,8 +100,13 @@ function setDoneUI(total) {
   btnLabels.disabled = false;
   progressBar.style.width = "100%";
   progressText.textContent = `Alle ${total} Bestellungen verarbeitet`;
-  statusText.innerHTML = `<span class="done-icon">✔</span> Fertig! ${total} Bestellungen bereit.`;
-  resultsCount.textContent = `CSV herunterladen oder Labels drucken.`;
+  statusText.replaceChildren();
+  const icon = document.createElement("span");
+  icon.className = "done-icon";
+  icon.textContent = "✔";
+  statusText.appendChild(icon);
+  statusText.appendChild(document.createTextNode(` Fertig! ${total} Bestellungen bereit.`));
+  resultsCount.textContent = "CSV herunterladen oder Labels drucken.";
 }
 
 function showWarning(msg) {

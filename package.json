@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "web-ext run --source-dir . --firefox-profile cardmarket-dev --keep-profile-changes",
     "build": "web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest",
-    "lint": "web-ext lint --source-dir ."
+    "lint": "web-ext lint --source-dir . --ignore-files lib/pdf.min.js lib/pdf.worker.min.js"
   },
   "devDependencies": {
     "web-ext": "^8.3.0"

@@ -6,8 +6,7 @@ if (typeof pdfjsLib === "undefined") {
     "❌ PDF.js konnte nicht geladen werden (CDN offline?). Bitte Internet prüfen und Seite neu laden.";
   document.getElementById("pdfInput").disabled = true;
 } else {
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = api.runtime.getURL("lib/pdf.worker.min.js");
 }
 
 // ── Debug box ────────────────────────────────────────────────────────────────
@@ -136,18 +135,27 @@ function cropStampFromPage(canvas) {
 // ── Stamp preview thumbnails ──────────────────────────────────────────────────
 function updateStampUI() {
   const preview = document.getElementById("stampPreview");
-  if (!stampImages.length) { preview.innerHTML = ""; return; }
+  preview.replaceChildren();
+  if (!stampImages.length) return;
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;";
 
   const visible = Math.min(stampImages.length, 8);
-  let html = "<div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;'>";
   for (let i = 0; i < visible; i++) {
-    html += `<img src='${stampImages[i]}' style='height:50px;border:1px solid #2e4057;border-radius:3px;background:#fff;' title='Stamp ${i + 1}'/>`;
+    const img = document.createElement("img");
+    img.src   = stampImages[i];      // base64 data: URI from user's own PDF
+    img.title = `Stamp ${i + 1}`;
+    img.style.cssText = "height:50px;border:1px solid #2e4057;border-radius:3px;background:#fff;";
+    wrap.appendChild(img);
   }
   if (stampImages.length > 8) {
-    html += `<span style='color:#8a9bb5;font-size:11px;align-self:center;'>+${stampImages.length - 8} weitere</span>`;
+    const span = document.createElement("span");
+    span.style.cssText = "color:#8a9bb5;font-size:11px;align-self:center;";
+    span.textContent = `+${stampImages.length - 8} weitere`;
+    wrap.appendChild(span);
   }
-  html += "</div>";
-  preview.innerHTML = html;
+  preview.appendChild(wrap);
 }
 
 // ── Render all labels ─────────────────────────────────────────────────────────
@@ -155,8 +163,13 @@ function renderLabels() {
   const grid  = document.getElementById("labelGrid");
   const count = document.getElementById("labelCount");
 
+  grid.replaceChildren();
+
   if (!allResults || !allResults.length) {
-    grid.innerHTML = "<p style='color:#8a9bb5;padding:20px 0'>Keine Bestellungen.</p>";
+    const p = document.createElement("p");
+    p.style.cssText = "color:#8a9bb5;padding:20px 0";
+    p.textContent = "Keine Bestellungen.";
+    grid.appendChild(p);
     count.textContent = "0 Etiketten";
     return;
   }
@@ -173,45 +186,75 @@ function renderLabels() {
   const stampOffset = Math.max(0,
     parseInt(document.getElementById("stampOffset").value || "1", 10) - 1);
 
-  grid.innerHTML = allResults
-    .map((o, i) => buildLabel(o, ra, i, stampOffset))
-    .join("");
+  const fragment = document.createDocumentFragment();
+  allResults.forEach((o, i) => fragment.appendChild(buildLabel(o, ra, i, stampOffset)));
+  grid.appendChild(fragment);
 }
 
 function buildLabel(o, ra, idx, offset) {
   const stampIdx  = idx + (offset || 0);
   const hasReturn = ra.name || ra.street || ra.city;
-  const senderLine = hasReturn
-    ? `<span style="display:block;font-weight:600;">${esc(ra.name)}</span>` +
-      `<span style="display:block;">${esc(ra.street)}, ${esc(ra.city)}</span>`
-    : "";
 
-  const stampImg = stampImages.length > stampIdx
-    ? `<img class="stamp-img" src="${stampImages[stampIdx]}"/>`
-    : `<div class="stamp-placeholder">${stampImages.length ? "⚠ leer" : "Marke"}</div>`;
+  // ── outer wrapper ────────────────────────────────────────────────────────
+  const label = document.createElement("div");
+  label.className = "label";
 
-  return `<div class="label">` +
-    `<div class="label-top">` +
-      `<div class="label-left">` +
-        (senderLine ? `<div class="label-sender">${senderLine}</div>` : "") +
-        `<div class="label-recipient">` +
-          `<div class="name">${esc(o.fullName || o.buyer)}</div>` +
-          `<div>${esc(o.street)}</div>` +
-          `<div>${esc(o.zipCity)}</div>` +
-          `<div>${esc(o.country)}</div>` +
-        `</div>` +
-      `</div>` +
-      `<div class="label-right">${stampImg}</div>` +
-    `</div>` +
-    `<div class="label-order">#${esc(o.id)}</div>` +
-  `</div>`;
-}
+  const top = document.createElement("div");
+  top.className = "label-top";
 
-function esc(s) {
-  return (s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  // ── left column ──────────────────────────────────────────────────────────
+  const left = document.createElement("div");
+  left.className = "label-left";
+
+  if (hasReturn) {
+    const sender = document.createElement("div");
+    sender.className = "label-sender";
+    const sName = document.createElement("span");
+    sName.style.cssText = "display:block;font-weight:600;";
+    sName.textContent = ra.name;
+    const sAddr = document.createElement("span");
+    sAddr.style.display = "block";
+    sAddr.textContent = `${ra.street}, ${ra.city}`;
+    sender.appendChild(sName);
+    sender.appendChild(sAddr);
+    left.appendChild(sender);
+  }
+
+  const recipient = document.createElement("div");
+  recipient.className = "label-recipient";
+  const rName    = document.createElement("div"); rName.className = "name"; rName.textContent = o.fullName || o.buyer || "";
+  const rStreet  = document.createElement("div"); rStreet.textContent  = o.street  || "";
+  const rZip     = document.createElement("div"); rZip.textContent     = o.zipCity || "";
+  const rCountry = document.createElement("div"); rCountry.textContent = o.country || "";
+  recipient.append(rName, rStreet, rZip, rCountry);
+  left.appendChild(recipient);
+
+  // ── right column (stamp) ─────────────────────────────────────────────────
+  const right = document.createElement("div");
+  right.className = "label-right";
+
+  if (stampImages.length > stampIdx) {
+    const img = document.createElement("img");
+    img.className = "stamp-img";
+    img.src = stampImages[stampIdx]; // base64 data: URI from user's own PDF
+    right.appendChild(img);
+  } else {
+    const ph = document.createElement("div");
+    ph.className = "stamp-placeholder";
+    ph.textContent = stampImages.length ? "⚠ leer" : "Marke";
+    right.appendChild(ph);
+  }
+
+  top.appendChild(left);
+  top.appendChild(right);
+  label.appendChild(top);
+
+  const orderDiv = document.createElement("div");
+  orderDiv.className = "label-order";
+  orderDiv.textContent = `#${o.id || ""}`;
+  label.appendChild(orderDiv);
+
+  return label;
 }
 
 // ── Button handlers ───────────────────────────────────────────────────────────
