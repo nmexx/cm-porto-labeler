@@ -36,6 +36,21 @@ Click **⬇ Download CSV** to save a spreadsheet with all order details.
 
 ---
 
+## Buying Stamps (Deutsche Post Internetmarke)
+
+Before printing labels you need to purchase digital stamps from Deutsche Post and download them as a PDF.
+
+1. Go to **[shop.deutschepost.de/shop/stamps/internetmarke](https://shop.deutschepost.de/shop/stamps/internetmarke)** and log in or create a free account
+2. Choose the correct postage for your shipping method (e.g. *Standardbrief*, *Kompaktbrief*, *Großbrief*)
+3. In the **format / layout** settings select **DK-11208 (38×90 mm)** — one stamp per page
+4. Buy as many stamps as you have open orders (you can buy in batches)
+5. Download the generated **PDF** — each page contains exactly one stamp
+6. Open the **Labels** page in the addon and upload this PDF via **📄 PDF hochladen…**
+
+> **Tip:** If you already used some pages from a previous PDF, use the **🎯 Erste verwendete Marke** offset field to skip them and start at the correct stamp.
+
+---
+
 ## CSV Columns
 
 | Column | Description |
