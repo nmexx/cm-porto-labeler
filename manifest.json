@@ -1,0 +1,50 @@
+{
+  "manifest_version": 2,
+  "name": "Cardmarket Order Exporter",
+  "version": "1.3",
+  "description": "Scrapes paid Cardmarket orders and exports buyer addresses to CSV + prints Brother DK-11208 (38×90mm) labels with Deutsche Post Internetmarke stamps",
+
+  "permissions": [
+    "tabs",
+    "downloads",
+    "storage",
+    "*://*.cardmarket.com/*",
+    "*://*.cardmarket.eu/*"
+  ],
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "cm-porto-labeler@local",
+      "strict_min_version": "109.0"
+    }
+  },
+
+  "content_security_policy": "script-src 'self' https://cdnjs.cloudflare.com; object-src 'self'",
+
+  "background": {
+    "scripts": ["background.js"]
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["*://*.cardmarket.com/*", "*://*.cardmarket.eu/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "Cardmarket Order Exporter",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+
+  "web_accessible_resources": ["labels.html", "labels.js"],
+
+  "icons": {
+    "48": "icons/icon48.png"
+  }
+}

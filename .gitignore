@@ -1,0 +1,13 @@
+# Node
+node_modules/
+
+# web-ext build output
+web-ext-artifacts/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.swp
