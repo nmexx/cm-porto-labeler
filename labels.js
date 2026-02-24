@@ -1,9 +1,14 @@
 // labels.js — Label rendering + stamp extraction from Deutsche Post Internetmarke PDF
 
-// ── PDF.js CDN guard ─────────────────────────────────────────────────────────
+// ── Globals — must be first ───────────────────────────────────────────────────
+const api = (typeof browser !== "undefined") ? browser : chrome;
+let stampImages = [];
+let allResults  = [];
+
+// ── PDF.js worker (bundled locally) ──────────────────────────────────────────
 if (typeof pdfjsLib === "undefined") {
   document.getElementById("pdfStatus").textContent =
-    "❌ PDF.js konnte nicht geladen werden (CDN offline?). Bitte Internet prüfen und Seite neu laden.";
+    "❌ PDF.js konnte nicht geladen werden. Bitte Seite neu laden.";
   document.getElementById("pdfInput").disabled = true;
 } else {
   pdfjsLib.GlobalWorkerOptions.workerSrc = api.runtime.getURL("lib/pdf.worker.min.js");
@@ -13,11 +18,6 @@ if (typeof pdfjsLib === "undefined") {
 const D = document.getElementById("debugBox");
 function log(msg) { D.textContent += "\n" + msg; }
 window.onerror = (m, _s, l) => log(`ERROR: ${m} line:${l}`);
-
-// ── Globals ──────────────────────────────────────────────────────────────────
-const api = (typeof browser !== "undefined") ? browser : chrome;
-let stampImages = [];
-let allResults  = [];
 
 log("1. Script loaded");
 
