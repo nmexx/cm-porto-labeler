@@ -2,8 +2,10 @@
 
 // ── Globals — must be first ───────────────────────────────────────────────────
 const api = (typeof browser !== "undefined") ? browser : chrome;
-let stampImages = [];
-let allResults  = [];
+let stampImages  = [];
+let allResults   = [];
+let a4Mode       = false;
+let activeFilter = null;   // null = all; Set of 0-based indices when filtered
 
 // ── PDF.js worker (bundled locally) ──────────────────────────────────────────
 if (typeof pdfjsLib === "undefined") {
@@ -158,6 +160,63 @@ function updateStampUI() {
   preview.appendChild(wrap);
 }
 
+// ── Filter helpers ───────────────────────────────────────────────────────────
+/**
+ * Parse a human range string like "1-3, 5, 7" into a sorted array of
+ * 0-based indices valid within [0, total).
+ * Returns null if the string is empty/blank (= all).
+ * Throws if any token is invalid.
+ */
+function parseRangeString(str, total) {
+  str = str.trim();
+  if (!str) return null;
+
+  const indices = new Set();
+  const tokens  = str.split(/[,;]+/);
+  for (const tok of tokens) {
+    const t = tok.trim();
+    if (!t) continue;
+    const range = t.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (range) {
+      const lo = parseInt(range[1], 10);
+      const hi = parseInt(range[2], 10);
+      if (lo > hi) throw new Error(`Ungültiger Bereich: ${t}`);
+      for (let n = lo; n <= hi; n++) {
+        if (n >= 1 && n <= total) indices.add(n - 1);
+      }
+    } else if (/^\d+$/.test(t)) {
+      const n = parseInt(t, 10);
+      if (n >= 1 && n <= total) indices.add(n - 1);
+    } else {
+      throw new Error(`Ungültiger Wert: "${t}"`);
+    }
+  }
+  return indices.size ? indices : null;
+}
+
+function getFilteredResults() {
+  if (!activeFilter) return allResults;
+  return allResults.filter((_, i) => activeFilter.has(i));
+}
+
+function updateFilterStatus() {
+  const total    = allResults.length;
+  const filtered = getFilteredResults();
+  const sel      = filtered.length;
+  const span     = document.getElementById("filterStatus");
+  const btn      = document.getElementById("btnPrint");
+
+  if (!activeFilter) {
+    span.textContent = `alle (${total})`;
+    span.className   = "";
+    btn.textContent  = "🖨 Alle drucken";
+  } else {
+    span.textContent = `${sel} von ${total} ausgewählt`;
+    span.className   = "filtered";
+    btn.textContent  = `🖨 ${sel} drucken`;
+  }
+}
+
 // ── Render all labels ─────────────────────────────────────────────────────────
 function renderLabels() {
   const grid  = document.getElementById("labelGrid");
@@ -176,6 +235,9 @@ function renderLabels() {
 
   count.textContent = `${allResults.length} Etikett${allResults.length !== 1 ? "en" : ""} bereit`;
 
+  const results = getFilteredResults();
+  updateFilterStatus();
+
   const ra = {
     name:    document.getElementById("rName").value.trim(),
     street:  document.getElementById("rStreet").value.trim(),
@@ -187,7 +249,26 @@ function renderLabels() {
     parseInt(document.getElementById("stampOffset").value || "1", 10) - 1);
 
   const fragment = document.createDocumentFragment();
-  allResults.forEach((o, i) => fragment.appendChild(buildLabel(o, ra, i, stampOffset)));
+
+  if (a4Mode) {
+    // Group labels into pages of 4 for the A4 2×2 grid
+    for (let pageIdx = 0; pageIdx < results.length; pageIdx += 4) {
+      const pageWrap  = document.createElement("div");
+      pageWrap.className = "a4-page";
+
+      const inner = document.createElement("div");
+      inner.className = "a4-inner";
+
+      const chunk = results.slice(pageIdx, pageIdx + 4);
+      chunk.forEach((o, i) => inner.appendChild(buildLabel(o, ra, pageIdx + i, stampOffset)));
+
+      pageWrap.appendChild(inner);
+      fragment.appendChild(pageWrap);
+    }
+  } else {
+    results.forEach((o, i) => fragment.appendChild(buildLabel(o, ra, i, stampOffset)));
+  }
+
   grid.appendChild(fragment);
 }
 
@@ -297,6 +378,58 @@ document.getElementById("btnPrint").addEventListener("click", () => {
 });
 
 document.getElementById("stampOffset").addEventListener("change", () => renderLabels());
+
+// ── Filter bar handlers ───────────────────────────────────────────────────────
+function applyFilter() {
+  const input = document.getElementById("filterInput");
+  try {
+    activeFilter = parseRangeString(input.value, allResults.length);
+    input.classList.remove("invalid");
+    renderLabels();
+  } catch (e) {
+    input.classList.add("invalid");
+    document.getElementById("filterStatus").textContent = "⚠ " + e.message;
+    document.getElementById("filterStatus").className = "filtered";
+  }
+}
+
+document.getElementById("btnFilterApply").addEventListener("click", applyFilter);
+
+document.getElementById("filterInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") applyFilter();
+  // Clear invalid state on any edit
+  if (e.key !== "Enter") document.getElementById("filterInput").classList.remove("invalid");
+});
+
+document.getElementById("btnFilterAll").addEventListener("click", () => {
+  activeFilter = null;
+  document.getElementById("filterInput").value = "";
+  document.getElementById("filterInput").classList.remove("invalid");
+  renderLabels();
+});
+
+// ── A4 mode toggle ────────────────────────────────────────────────────────────
+document.getElementById("btnA4Mode").addEventListener("click", () => {
+  a4Mode = !a4Mode;
+  document.body.classList.toggle("a4-mode", a4Mode);
+
+  // @page size cannot be toggled by class — inject/remove an override <style>
+  const existing = document.getElementById("a4PageOverride");
+  if (a4Mode) {
+    if (!existing) {
+      const s = document.createElement("style");
+      s.id = "a4PageOverride";
+      s.textContent = "@media print { @page { size: A4 portrait; margin: 0; } }";
+      document.head.appendChild(s);
+    }
+  } else {
+    if (existing) existing.remove();
+  }
+
+  const btn = document.getElementById("btnA4Mode");
+  btn.textContent = a4Mode ? "📄 A4-Raster ✔" : "📄 A4-Raster (4/Seite)";
+  renderLabels();
+});
 
 // ── Debug box toggle ─────────────────────────────────────────────────────────
 document.getElementById("btnToggleDebug").addEventListener("click", () => {
