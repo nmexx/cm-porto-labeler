@@ -24,7 +24,7 @@ window.onerror = (m, _s, l) => log(`ERROR: ${m} line:${l}`);
 log("1. Script loaded");
 
 // ── Load persisted data from storage ─────────────────────────────────────────
-api.storage.local.get(["cachedResults", "returnAddress", "stampImages"], (data) => {
+api.storage.local.get(["cachedResults", "returnAddress", "stampImages", "stampOffset"], (data) => {
   log("2. Storage loaded");
 
   if (data.returnAddress) {
@@ -35,10 +35,15 @@ api.storage.local.get(["cachedResults", "returnAddress", "stampImages"], (data) 
     document.getElementById("rCountry").value = ra.country || "Deutschland";
   }
 
+  // Restore persisted stamp offset
+  if (data.stampOffset) {
+    document.getElementById("stampOffset").value = data.stampOffset;
+  }
+
   if (data.stampImages && data.stampImages.length > 0) {
     stampImages = data.stampImages;
     log(`3. ${stampImages.length} stamps from storage`);
-    updateStampUI();
+    updateStampTrack();
   } else {
     log("3. No stamps yet");
   }
@@ -90,12 +95,15 @@ document.getElementById("pdfInput").addEventListener("change", (e) => {
             log(`Page ${pageNum} rendered (${rendered}/${pdf.numPages})`);
 
             if (rendered === pdf.numPages) {
-              const dbg = document.getElementById("stampDebugImg");
-              if (dbg) { dbg.src = stampImages[0]; dbg.style.display = "block"; }
               document.getElementById("pdfStatus").textContent =
                 `✅ ${stampImages.length} Briefmarken extrahiert`;
               api.storage.local.set({ stampImages }, () => {
-                updateStampUI();
+                // Reset offset to 1 when a fresh PDF is loaded
+                document.getElementById("stampOffset").value = 1;
+                api.storage.local.set({ stampOffset: 1 });
+                const dbg = document.getElementById("stampDebugImg");
+                if (dbg) { dbg.src = stampImages[0]; dbg.style.display = "block"; }
+                updateStampTrack();
                 renderLabels();
               });
             }
@@ -134,30 +142,77 @@ function cropStampFromPage(canvas) {
   return out;
 }
 
-// ── Stamp preview thumbnails ──────────────────────────────────────────────────
-function updateStampUI() {
-  const preview = document.getElementById("stampPreview");
-  preview.replaceChildren();
+// ── Stamp tracker strip ───────────────────────────────────────────────────────
+// Show up to MAX_VISIBLE thumbnails; beyond that show a badge.
+const MAX_VISIBLE = 25;
+
+function updateStampTrack() {
+  const track   = document.getElementById("stampTrack");
+  const summary = document.getElementById("stampTrackSummary");
+  track.replaceChildren();
+  summary.textContent = "";
+
   if (!stampImages.length) return;
 
-  const wrap = document.createElement("div");
-  wrap.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;";
+  // 0-based index of the first stamp that will be used next
+  const nextIdx = Math.max(0,
+    parseInt(document.getElementById("stampOffset").value || "1", 10) - 1);
 
-  const visible = Math.min(stampImages.length, 8);
+  const total     = stampImages.length;
+  const usedCount = Math.min(nextIdx, total);
+  const remaining = total - usedCount;
+
+  const visible = Math.min(total, MAX_VISIBLE);
+
   for (let i = 0; i < visible; i++) {
+    const thumb = document.createElement("div");
+    thumb.className = "stamp-thumb " +
+      (i < nextIdx ? "used" : i === nextIdx ? "next" : "avail");
+    thumb.title = i < nextIdx ? `Marke ${i+1} — verbraucht`
+                : i === nextIdx ? `Marke ${i+1} — als nächstes`
+                : `Marke ${i+1} — verfügbar`;
+
     const img = document.createElement("img");
-    img.src   = stampImages[i];      // base64 data: URI from user's own PDF
-    img.title = `Stamp ${i + 1}`;
-    img.style.cssText = "height:50px;border:1px solid #2e4057;border-radius:3px;background:#fff;";
-    wrap.appendChild(img);
+    img.src = stampImages[i];
+    thumb.appendChild(img);
+
+    const num = document.createElement("div");
+    num.className = "st-num";
+    num.textContent = i + 1;
+    thumb.appendChild(num);
+
+    // Click to set as next
+    thumb.style.cursor = "pointer";
+    thumb.addEventListener("click", () => {
+      document.getElementById("stampOffset").value = i + 1;
+      api.storage.local.set({ stampOffset: i + 1 });
+      updateStampTrack();
+      renderLabels();
+    });
+
+    track.appendChild(thumb);
   }
-  if (stampImages.length > 8) {
-    const span = document.createElement("span");
-    span.style.cssText = "color:#8a9bb5;font-size:11px;align-self:center;";
-    span.textContent = `+${stampImages.length - 8} weitere`;
-    wrap.appendChild(span);
+
+  if (total > MAX_VISIBLE) {
+    const badge = document.createElement("div");
+    badge.className = "stamp-more";
+    badge.textContent = `+${total - MAX_VISIBLE} weitere`;
+    track.appendChild(badge);
   }
-  preview.appendChild(wrap);
+
+  // Summary line
+  if (usedCount > 0) {
+    summary.innerHTML =
+      `<span style="color:#5a8a5a">✓ ${usedCount} verbraucht</span>` +
+      ` &nbsp;·&nbsp; ` +
+      `<span style="color:#7ddb7d">${remaining} verbleibend</span>` +
+      (remaining === 0
+        ? ` &nbsp;<span style="color:#c0392b;font-weight:600">— PDF aufgebraucht!</span>`
+        : "");
+  } else {
+    summary.innerHTML =
+      `<span style="color:#7ddb7d">${total} Marken verfügbar</span>`;
+  }
 }
 
 // ── Filter helpers ───────────────────────────────────────────────────────────
@@ -356,9 +411,12 @@ document.getElementById("btnSave").addEventListener("click", () => {
 document.getElementById("btnClearStamps").addEventListener("click", () => {
   stampImages = [];
   api.storage.local.remove("stampImages", () => {
-    updateStampUI();
+    updateStampTrack();
     renderLabels();
   });
+  // Reset offset when stamps are cleared
+  document.getElementById("stampOffset").value = 1;
+  api.storage.local.set({ stampOffset: 1 });
   document.getElementById("pdfStatus").textContent = "Marken gelöscht";
   const dbg = document.getElementById("stampDebugImg");
   if (dbg) dbg.style.display = "none";
@@ -373,11 +431,27 @@ document.getElementById("btnPrint").addEventListener("click", () => {
   };
   api.storage.local.set({ returnAddress: ra }, () => {
     renderLabels();
-    setTimeout(() => window.print(), 200);
+    setTimeout(() => {
+      window.print();
+      // Advance the offset by the number of labels just sent to print
+      const printed      = getFilteredResults().length;
+      const currentInput = parseInt(document.getElementById("stampOffset").value || "1", 10);
+      const newOffset    = currentInput + printed;
+      document.getElementById("stampOffset").value = newOffset;
+      api.storage.local.set({ stampOffset: newOffset }, () => {
+        updateStampTrack();
+        renderLabels();
+      });
+    }, 200);
   });
 });
 
-document.getElementById("stampOffset").addEventListener("change", () => renderLabels());
+document.getElementById("stampOffset").addEventListener("change", () => {
+  const v = parseInt(document.getElementById("stampOffset").value || "1", 10);
+  api.storage.local.set({ stampOffset: v });
+  updateStampTrack();
+  renderLabels();
+});
 
 // ── Filter bar handlers ───────────────────────────────────────────────────────
 function applyFilter() {

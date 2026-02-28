@@ -46,6 +46,27 @@
     .stamp-debug-wrap label { font-size: 10px; color: #8a9bb5; display: block; margin-bottom: 4px; }
     #stampDebugImg { display: none; height: 110px; max-width: 320px; border: 1px solid #e07b39; border-radius: 4px; background: #fff; object-fit: contain; }
 
+    /* ── Stamp tracker strip ── */
+    .stamp-track { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; align-items: flex-end; }
+    .stamp-thumb { position: relative; height: 54px; cursor: default; flex-shrink: 0; }
+    .stamp-thumb img { height: 50px; border-radius: 3px; background: #fff; display: block; border: 2px solid transparent; }
+    .stamp-thumb .st-num { position: absolute; bottom: 0; left: 0; right: 0; text-align: center;
+      font-size: 9px; color: #8a9bb5; line-height: 1.2; pointer-events: none; }
+    /* used */
+    .stamp-thumb.used img     { opacity: 0.28; filter: grayscale(1); border-color: #444; }
+    .stamp-thumb.used::after  { content: "✓"; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-60%);
+      font-size: 20px; font-weight: 900; color: #5a8a5a; pointer-events: none; }
+    /* next */
+    .stamp-thumb.next img     { border-color: #7ddb7d; box-shadow: 0 0 6px #7ddb7d88; }
+    .stamp-thumb.next::after  { content: "▶"; position: absolute; top: 2px; right: 2px;
+      font-size: 11px; color: #7ddb7d; pointer-events: none; }
+    /* available */
+    .stamp-thumb.avail img    { border-color: #2e4057; opacity: 0.7; }
+    /* overflow badge */
+    .stamp-more { align-self: center; color: #8a9bb5; font-size: 12px; padding: 4px 8px;
+      background: #0f1e36; border-radius: 6px; border: 1px solid #2e4057; white-space: nowrap; }
+    #stampTrackSummary { font-size: 12px; margin-top: 6px; color: #8a9bb5; }
+
     .debug-box { background: #0f1e36; border: 1px solid #2e4057; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 11px; font-family: monospace; color: #8a9bb5; white-space: pre-wrap; max-height: 80px; overflow-y: auto; }
 
     /* ── A4 mode screen preview ── */
@@ -196,11 +217,14 @@
     <div class="offset-row">
       <label>🎯 Erste verwendete Marke (Seite):</label>
       <input type="number" id="stampOffset" min="1" max="99" value="1"/>
-      <span class="hint">Seite 1 = Marke 1, Seite 2 = Marke 2, … Bereits verbrauchte überspringen.</span>
+      <span class="hint">Seite 1 = Marke 1 usw. — wird nach dem Drucken automatisch angepasst. Marke anklicken zum manuellen Setzen.</span>
     </div>
 
     <div class="stamp-preview-wrap">
-      <div id="stampPreview"></div>
+      <div>
+        <div class="stamp-track" id="stampTrack"></div>
+        <div id="stampTrackSummary"></div>
+      </div>
       <div class="stamp-debug-wrap">
         <label>🔍 Erste Marke — Vorschau:</label>
         <img id="stampDebugImg" alt="Stamp preview"/>
