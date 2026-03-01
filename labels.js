@@ -186,7 +186,7 @@ document.getElementById("pdfPriorityInput").addEventListener("change", (e) => {
 // Standard Internetmarke: barcode left, DP logo+text right  → capture right half
 // Priority Einschreiben:  large "R" emblem extends further left → wider capture
 const CROP_STD = { x: 0.27, y: 0.03, w: 0.45, h: 0.62 };
-const CROP_PRI = { x: 0.08, y: 0.02, w: 0.72, h: 0.66 };
+const CROP_PRI = { x: 0.03, y: 0.01, w: 0.82, h: 0.70 };
 
 function cropStampFromPage(canvas, cropParams) {
   const c = cropParams || CROP_STD;
