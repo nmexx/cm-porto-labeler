@@ -227,36 +227,81 @@ function updateStampTrack() {
 
 // ── Filter helpers ───────────────────────────────────────────────────────────
 /**
- * Parse a human range string like "1-3, 5, 7" into a sorted array of
- * 0-based indices valid within [0, total).
- * Returns null if the string is empty/blank (= all).
- * Throws if any token is invalid.
+ * Parse a range string into a Set of 0-based indices within [0, total).
+ * Returns null if empty (= show all).
+ *
+ * Inclusion tokens:   5   1-3   1-3,5,7
+ * Exclusion tokens:  -5  -1-3  (start from all, remove these)
+ * Mixed:             1-5, -3   (include 1-5 except 3  →  1,2,4,5)
+ * Only exclusions:   -2, -5    (all labels except 2 and 5)
  */
 function parseRangeString(str, total) {
   str = str.trim();
   if (!str) return null;
 
-  const indices = new Set();
-  const tokens  = str.split(/[,;]+/);
+  const include = new Set();
+  const exclude = new Set();
+  let hasIncludes = false;
+
+  const tokens = str.split(/[,;]+/);
   for (const tok of tokens) {
     const t = tok.trim();
     if (!t) continue;
-    const range = t.match(/^(\d+)\s*-\s*(\d+)$/);
-    if (range) {
-      const lo = parseInt(range[1], 10);
-      const hi = parseInt(range[2], 10);
+
+    // Exclusion range: -1-3
+    const exRange = t.match(/^-\s*(\d+)\s*-\s*(\d+)$/);
+    if (exRange) {
+      const lo = parseInt(exRange[1], 10);
+      const hi = parseInt(exRange[2], 10);
       if (lo > hi) throw new Error(`Ungültiger Bereich: ${t}`);
-      for (let n = lo; n <= hi; n++) {
-        if (n >= 1 && n <= total) indices.add(n - 1);
-      }
-    } else if (/^\d+$/.test(t)) {
-      const n = parseInt(t, 10);
-      if (n >= 1 && n <= total) indices.add(n - 1);
-    } else {
-      throw new Error(`Ungültiger Wert: "${t}"`);
+      for (let n = lo; n <= hi; n++) { if (n >= 1 && n <= total) exclude.add(n - 1); }
+      continue;
     }
+
+    // Exclusion single: -5
+    const exSingle = t.match(/^-\s*(\d+)$/);
+    if (exSingle) {
+      const n = parseInt(exSingle[1], 10);
+      if (n >= 1 && n <= total) exclude.add(n - 1);
+      continue;
+    }
+
+    // Inclusion range: 1-3
+    const inRange = t.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (inRange) {
+      const lo = parseInt(inRange[1], 10);
+      const hi = parseInt(inRange[2], 10);
+      if (lo > hi) throw new Error(`Ungültiger Bereich: ${t}`);
+      for (let n = lo; n <= hi; n++) { if (n >= 1 && n <= total) include.add(n - 1); }
+      hasIncludes = true;
+      continue;
+    }
+
+    // Inclusion single: 5
+    if (/^\d+$/.test(t)) {
+      const n = parseInt(t, 10);
+      if (n >= 1 && n <= total) include.add(n - 1);
+      hasIncludes = true;
+      continue;
+    }
+
+    throw new Error(`Ungültiger Wert: "${t}"`);
   }
-  return indices.size ? indices : null;
+
+  // Build final set
+  let result;
+  if (hasIncludes) {
+    // Explicit inclusions minus any exclusions
+    result = new Set([...include].filter(i => !exclude.has(i)));
+  } else if (exclude.size) {
+    // No explicit inclusions → start from all, remove exclusions
+    result = new Set();
+    for (let i = 0; i < total; i++) { if (!exclude.has(i)) result.add(i); }
+  } else {
+    return null; // nothing specified → all
+  }
+
+  return result.size ? result : null;
 }
 
 function getFilteredResults() {
