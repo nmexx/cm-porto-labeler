@@ -200,18 +200,28 @@ function updateStampTrack() {
     track.appendChild(badge);
   }
 
-  // Summary line
+  // Summary line — build with DOM methods (no innerHTML)
+  function mkSpan(text, color, bold) {
+    const s = document.createElement("span");
+    s.textContent = text;
+    s.style.color = color;
+    if (bold) s.style.fontWeight = "600";
+    return s;
+  }
+
   if (usedCount > 0) {
-    summary.innerHTML =
-      `<span style="color:#5a8a5a">✓ ${usedCount} verbraucht</span>` +
-      ` &nbsp;·&nbsp; ` +
-      `<span style="color:#7ddb7d">${remaining} verbleibend</span>` +
-      (remaining === 0
-        ? ` &nbsp;<span style="color:#c0392b;font-weight:600">— PDF aufgebraucht!</span>`
-        : "");
+    summary.replaceChildren(
+      mkSpan(`✓ ${usedCount} verbraucht`, "#5a8a5a", false),
+      document.createTextNode(" · "),
+      mkSpan(`${remaining} verbleibend`, "#7ddb7d", false),
+      ...(remaining === 0
+        ? [document.createTextNode(" "), mkSpan("— PDF aufgebraucht!", "#c0392b", true)]
+        : [])
+    );
   } else {
-    summary.innerHTML =
-      `<span style="color:#7ddb7d">${total} Marken verfügbar</span>`;
+    summary.replaceChildren(
+      mkSpan(`${total} Marken verfügbar`, "#7ddb7d", false)
+    );
   }
 }
 
