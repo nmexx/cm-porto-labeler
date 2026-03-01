@@ -2,10 +2,12 @@
 
 // ── Globals — must be first ───────────────────────────────────────────────────
 const api = (typeof browser !== "undefined") ? browser : chrome;
-let stampImages  = [];
-let allResults   = [];
-let a4Mode       = false;
-let activeFilter = null;   // null = all; Set of 0-based indices when filtered
+let stampImages         = [];
+let priorityStampImages = [];        // stamps for priority / express shipments
+let allResults          = [];
+let a4Mode              = false;
+let activeFilter        = null;      // null = all; Set of 0-based indices when filtered
+let priorityLabels      = new Set(); // Set of order ID strings marked as priority
 
 // ── PDF.js worker (bundled locally) ──────────────────────────────────────────
 if (typeof pdfjsLib === "undefined") {
@@ -24,7 +26,8 @@ window.onerror = (m, _s, l) => log(`ERROR: ${m} line:${l}`);
 log("1. Script loaded");
 
 // ── Load persisted data from storage ─────────────────────────────────────────
-api.storage.local.get(["cachedResults", "returnAddress", "stampImages", "stampOffset"], (data) => {
+api.storage.local.get(["cachedResults", "returnAddress", "stampImages", "stampOffset",
+                        "priorityStampImages", "priorityStampOffset", "priorityLabels"], (data) => {
   log("2. Storage loaded");
 
   if (data.returnAddress) {
@@ -35,9 +38,12 @@ api.storage.local.get(["cachedResults", "returnAddress", "stampImages", "stampOf
     document.getElementById("rCountry").value = ra.country || "Deutschland";
   }
 
-  // Restore persisted stamp offset
+  // Restore persisted stamp offsets
   if (data.stampOffset) {
     document.getElementById("stampOffset").value = data.stampOffset;
+  }
+  if (data.priorityStampOffset) {
+    document.getElementById("priorityStampOffset").value = data.priorityStampOffset;
   }
 
   if (data.stampImages && data.stampImages.length > 0) {
@@ -46,6 +52,16 @@ api.storage.local.get(["cachedResults", "returnAddress", "stampImages", "stampOf
     updateStampTrack();
   } else {
     log("3. No stamps yet");
+  }
+
+  if (data.priorityStampImages && data.priorityStampImages.length > 0) {
+    priorityStampImages = data.priorityStampImages;
+    log(`3b. ${priorityStampImages.length} priority stamps from storage`);
+    updatePriorityStampTrack();
+  }
+  if (data.priorityLabels && data.priorityLabels.length > 0) {
+    priorityLabels = new Set(data.priorityLabels.map(String));
+    log(`3c. ${priorityLabels.size} priority label IDs restored`);
   }
 
   allResults = data.cachedResults || [];
@@ -59,27 +75,24 @@ api.storage.local.get(["cachedResults", "returnAddress", "stampImages", "stampOf
   }
 });
 
-// ── PDF extraction — one stamp per page ──────────────────────────────────────
-document.getElementById("pdfInput").addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  if (typeof pdfjsLib === "undefined") return;
-
+// ── PDF extraction helper ─────────────────────────────────────────────────────
+// Loads a PDF, renders each page as a cropped stamp PNG, calls onDone(images[]).
+function loadPdfStamps(file, statusElId, onDone) {
+  if (!file || typeof pdfjsLib === "undefined") return;
+  const statusEl = document.getElementById(statusElId);
   log(`PDF: ${file.name}`);
-  document.getElementById("pdfStatus").textContent = "⏳ Verarbeite PDF…";
+  statusEl.textContent = "⏳ Verarbeite PDF…";
 
   const reader = new FileReader();
   reader.onload = (ev) => {
     const pdfData = new Uint8Array(ev.target.result);
     pdfjsLib.getDocument({ data: pdfData }).promise.then((pdf) => {
-      log(`PDF has ${pdf.numPages} pages (= ${pdf.numPages} stamps)`);
-      document.getElementById("pdfStatus").textContent =
-        `⏳ Rendere ${pdf.numPages} Seiten…`;
+      log(`PDF has ${pdf.numPages} pages`);
+      statusEl.textContent = `⏳ Rendere ${pdf.numPages} Seiten…`;
 
-      stampImages = new Array(pdf.numPages);
+      const images = new Array(pdf.numPages);
       let rendered = 0;
 
-      // Render all pages in parallel (each page = one stamp)
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         pdf.getPage(pageNum).then((page) => {
           const scale    = 3.0;
@@ -89,33 +102,50 @@ document.getElementById("pdfInput").addEventListener("change", (e) => {
           canvas.height  = viewport.height;
 
           page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise.then(() => {
-            const cropCanvas = cropStampFromPage(canvas);
-            stampImages[pageNum - 1] = cropCanvas.toDataURL("image/png");
+            images[pageNum - 1] = cropStampFromPage(canvas).toDataURL("image/png");
             rendered++;
             log(`Page ${pageNum} rendered (${rendered}/${pdf.numPages})`);
-
             if (rendered === pdf.numPages) {
-              document.getElementById("pdfStatus").textContent =
-                `✅ ${stampImages.length} Briefmarken extrahiert`;
-              api.storage.local.set({ stampImages }, () => {
-                // Reset offset to 1 when a fresh PDF is loaded
-                document.getElementById("stampOffset").value = 1;
-                api.storage.local.set({ stampOffset: 1 });
-                const dbg = document.getElementById("stampDebugImg");
-                if (dbg) { dbg.src = stampImages[0]; dbg.style.display = "block"; }
-                updateStampTrack();
-                renderLabels();
-              });
+              statusEl.textContent = `✅ ${images.length} Briefmarken extrahiert`;
+              onDone(images);
             }
           });
         });
       }
     }, (err) => {
       log(`PDF error: ${err.message}`);
-      document.getElementById("pdfStatus").textContent = `❌ ${err.message}`;
+      statusEl.textContent = `❌ ${err.message}`;
     });
   };
   reader.readAsArrayBuffer(file);
+}
+
+// ── Standard stamp PDF ────────────────────────────────────────────────────────
+document.getElementById("pdfInput").addEventListener("change", (e) => {
+  loadPdfStamps(e.target.files[0], "pdfStatus", (images) => {
+    stampImages = images;
+    api.storage.local.set({ stampImages }, () => {
+      document.getElementById("stampOffset").value = 1;
+      api.storage.local.set({ stampOffset: 1 });
+      const dbg = document.getElementById("stampDebugImg");
+      if (dbg) { dbg.src = stampImages[0]; dbg.style.display = "block"; }
+      updateStampTrack();
+      renderLabels();
+    });
+  });
+});
+
+// ── Priority stamp PDF ────────────────────────────────────────────────────────
+document.getElementById("pdfPriorityInput").addEventListener("change", (e) => {
+  loadPdfStamps(e.target.files[0], "pdfPriorityStatus", (images) => {
+    priorityStampImages = images;
+    api.storage.local.set({ priorityStampImages }, () => {
+      document.getElementById("priorityStampOffset").value = 1;
+      api.storage.local.set({ priorityStampOffset: 1 });
+      updatePriorityStampTrack();
+      renderLabels();
+    });
+  });
 });
 
 // ── Crop stamp from full Deutsche Post Internetmarke page ─────────────────────
@@ -224,7 +254,78 @@ function updateStampTrack() {
     );
   }
 }
+function updatePriorityStampTrack() {
+  const track   = document.getElementById("priorityStampTrack");
+  const summary = document.getElementById("priorityStampTrackSummary");
+  track.replaceChildren();
+  summary.textContent = "";
 
+  if (!priorityStampImages.length) return;
+
+  const nextIdx   = Math.max(0,
+    parseInt(document.getElementById("priorityStampOffset").value || "1", 10) - 1);
+  const total     = priorityStampImages.length;
+  const usedCount = Math.min(nextIdx, total);
+  const remaining = total - usedCount;
+  const visible   = Math.min(total, MAX_VISIBLE);
+
+  for (let i = 0; i < visible; i++) {
+    const thumb = document.createElement("div");
+    thumb.className = "stamp-thumb " +
+      (i < nextIdx ? "used" : i === nextIdx ? "next" : "avail");
+    thumb.title = i < nextIdx ? `Priorität-Marke ${i+1} — verbraucht`
+                : i === nextIdx ? `Priorität-Marke ${i+1} — als nächstes`
+                : `Priorität-Marke ${i+1} — verfügbar`;
+
+    const img = document.createElement("img");
+    img.src = priorityStampImages[i];
+    thumb.appendChild(img);
+
+    const num = document.createElement("div");
+    num.className = "st-num";
+    num.textContent = i + 1;
+    thumb.appendChild(num);
+
+    thumb.style.cursor = "pointer";
+    thumb.addEventListener("click", () => {
+      document.getElementById("priorityStampOffset").value = i + 1;
+      api.storage.local.set({ priorityStampOffset: i + 1 });
+      updatePriorityStampTrack();
+    });
+
+    track.appendChild(thumb);
+  }
+
+  if (total > MAX_VISIBLE) {
+    const badge = document.createElement("div");
+    badge.className = "stamp-more";
+    badge.textContent = `+${total - MAX_VISIBLE} weitere`;
+    track.appendChild(badge);
+  }
+
+  function mkSpan(text, color, bold) {
+    const s = document.createElement("span");
+    s.textContent = text;
+    s.style.color = color;
+    if (bold) s.style.fontWeight = "600";
+    return s;
+  }
+
+  if (usedCount > 0) {
+    summary.replaceChildren(
+      mkSpan(`✓ ${usedCount} verbraucht`, "#5a8a5a", false),
+      document.createTextNode(" · "),
+      mkSpan(`${remaining} verbleibend`, "#d4a017", false),
+      ...(remaining === 0
+        ? [document.createTextNode(" "), mkSpan("— PDF aufgebraucht!", "#c0392b", true)]
+        : [])
+    );
+  } else {
+    summary.replaceChildren(
+      mkSpan(`${total} Priorität-Marken verfügbar`, "#d4a017", false)
+    );
+  }
+}
 // ── Filter helpers ───────────────────────────────────────────────────────────
 /**
  * Parse a range string into a Set of 0-based indices within [0, total).
@@ -355,8 +456,12 @@ function renderLabels() {
     country: document.getElementById("rCountry").value.trim() || "Deutschland"
   };
 
-  const stampOffset = Math.max(0,
+  const stdOffset = Math.max(0,
     parseInt(document.getElementById("stampOffset").value || "1", 10) - 1);
+  const priOffset = Math.max(0,
+    parseInt(document.getElementById("priorityStampOffset").value || "1", 10) - 1);
+  let stdCounter = stdOffset;
+  let priCounter = priOffset;
 
   const fragment = document.createDocumentFragment();
 
@@ -370,25 +475,32 @@ function renderLabels() {
       inner.className = "a4-inner";
 
       const chunk = results.slice(pageIdx, pageIdx + 4);
-      chunk.forEach((o, i) => inner.appendChild(buildLabel(o, ra, pageIdx + i, stampOffset)));
+      chunk.forEach((o, i) => {
+        const isPri = priorityLabels.has(String(o.id || ""));
+        const si    = isPri ? priCounter++ : stdCounter++;
+        inner.appendChild(buildLabel(o, ra, pageIdx + i, si, isPri));
+      });
 
       pageWrap.appendChild(inner);
       fragment.appendChild(pageWrap);
     }
   } else {
-    results.forEach((o, i) => fragment.appendChild(buildLabel(o, ra, i, stampOffset)));
+    results.forEach((o, i) => {
+      const isPri = priorityLabels.has(String(o.id || ""));
+      const si    = isPri ? priCounter++ : stdCounter++;
+      fragment.appendChild(buildLabel(o, ra, i, si, isPri));
+    });
   }
 
   grid.appendChild(fragment);
 }
 
-function buildLabel(o, ra, idx, offset) {
-  const stampIdx  = idx + (offset || 0);
+function buildLabel(o, ra, idx, stampIdx, isPriority) {
   const hasReturn = ra.name || ra.street || ra.city;
 
-  // ── outer wrapper ────────────────────────────────────────────────────────
+  // ── outer wrapper ────────────────────────────────────────────────────────────
   const label = document.createElement("div");
-  label.className = "label";
+  label.className = "label" + (isPriority ? " priority" : "");
 
   const top = document.createElement("div");
   top.className = "label-top";
@@ -401,10 +513,10 @@ function buildLabel(o, ra, idx, offset) {
     const sender = document.createElement("div");
     sender.className = "label-sender";
     const sName = document.createElement("span");
-    sName.style.cssText = "display:block;font-weight:600;";
+    sName.className = "sender-name";
     sName.textContent = ra.name;
     const sAddr = document.createElement("span");
-    sAddr.style.display = "block";
+    sAddr.className = "sender-addr";
     sAddr.textContent = `${ra.street}, ${ra.city}`;
     sender.appendChild(sName);
     sender.appendChild(sAddr);
@@ -424,15 +536,16 @@ function buildLabel(o, ra, idx, offset) {
   const right = document.createElement("div");
   right.className = "label-right";
 
-  if (stampImages.length > stampIdx) {
+  const stampPool = isPriority ? priorityStampImages : stampImages;
+  if (stampPool.length > stampIdx) {
     const img = document.createElement("img");
     img.className = "stamp-img";
-    img.src = stampImages[stampIdx]; // base64 data: URI from user's own PDF
+    img.src = stampPool[stampIdx]; // base64 data: URI from user's own PDF
     right.appendChild(img);
   } else {
     const ph = document.createElement("div");
     ph.className = "stamp-placeholder";
-    ph.textContent = stampImages.length ? "⚠ leer" : "Marke";
+    ph.textContent = stampPool.length ? "⚠ leer" : (isPriority ? "⚡ Marke" : "Marke");
     right.appendChild(ph);
   }
 
@@ -442,7 +555,20 @@ function buildLabel(o, ra, idx, offset) {
 
   const orderDiv = document.createElement("div");
   orderDiv.className = "label-order";
-  orderDiv.textContent = `#${o.id || ""}`;
+  const orderNum = document.createElement("span");
+  orderNum.textContent = `#${o.id || ""}`;
+  const toggleBtn = document.createElement("button");
+  toggleBtn.className  = "label-pri-toggle";
+  toggleBtn.type       = "button";
+  toggleBtn.dataset.orderId = String(o.id || "");
+  if (isPriority) {
+    toggleBtn.textContent = "⚡ Priorität";
+    toggleBtn.title       = "Priorität-Marke aktiv — klicken zum Entfernen";
+  } else {
+    toggleBtn.textContent = "⚡";
+    toggleBtn.title       = "Als Priorität-Marke markieren";
+  }
+  orderDiv.append(orderNum, toggleBtn);
   label.appendChild(orderDiv);
 
   return label;
@@ -477,6 +603,17 @@ document.getElementById("btnClearStamps").addEventListener("click", () => {
   if (dbg) dbg.style.display = "none";
 });
 
+document.getElementById("btnClearPriorityStamps").addEventListener("click", () => {
+  priorityStampImages = [];
+  api.storage.local.remove("priorityStampImages", () => {
+    updatePriorityStampTrack();
+    renderLabels();
+  });
+  document.getElementById("priorityStampOffset").value = 1;
+  api.storage.local.set({ priorityStampOffset: 1 });
+  document.getElementById("pdfPriorityStatus").textContent = "Marken gelöscht";
+});
+
 document.getElementById("btnPrint").addEventListener("click", () => {
   const ra = {
     name:    document.getElementById("rName").value.trim(),
@@ -488,13 +625,20 @@ document.getElementById("btnPrint").addEventListener("click", () => {
     renderLabels();
     setTimeout(() => {
       window.print();
-      // Advance the offset by the number of labels just sent to print
-      const printed      = getFilteredResults().length;
-      const currentInput = parseInt(document.getElementById("stampOffset").value || "1", 10);
-      const newOffset    = currentInput + printed;
-      document.getElementById("stampOffset").value = newOffset;
-      api.storage.local.set({ stampOffset: newOffset }, () => {
+      // Advance each stamp offset by the number of that type printed
+      const printed = getFilteredResults();
+      let stdCount = 0, priCount = 0;
+      printed.forEach(o => {
+        if (priorityLabels.has(String(o.id || ""))) priCount++;
+        else stdCount++;
+      });
+      const newStdOffset = parseInt(document.getElementById("stampOffset").value || "1", 10) + stdCount;
+      const newPriOffset = parseInt(document.getElementById("priorityStampOffset").value || "1", 10) + priCount;
+      document.getElementById("stampOffset").value         = newStdOffset;
+      document.getElementById("priorityStampOffset").value = newPriOffset;
+      api.storage.local.set({ stampOffset: newStdOffset, priorityStampOffset: newPriOffset }, () => {
         updateStampTrack();
+        updatePriorityStampTrack();
         renderLabels();
       });
     }, 200);
@@ -505,6 +649,13 @@ document.getElementById("stampOffset").addEventListener("change", () => {
   const v = parseInt(document.getElementById("stampOffset").value || "1", 10);
   api.storage.local.set({ stampOffset: v });
   updateStampTrack();
+  renderLabels();
+});
+
+document.getElementById("priorityStampOffset").addEventListener("change", () => {
+  const v = parseInt(document.getElementById("priorityStampOffset").value || "1", 10);
+  api.storage.local.set({ priorityStampOffset: v });
+  updatePriorityStampTrack();
   renderLabels();
 });
 
@@ -559,7 +710,16 @@ document.getElementById("btnA4Mode").addEventListener("click", () => {
   btn.textContent = a4Mode ? "📄 A4-Raster ✔" : "📄 A4-Raster (4/Seite)";
   renderLabels();
 });
-
+// ── Priority label toggle (event delegation on the label grid) ─────────────────────
+document.getElementById("labelGrid").addEventListener("click", (e) => {
+  const btn = e.target.closest(".label-pri-toggle");
+  if (!btn) return;
+  const oid = String(btn.dataset.orderId || "");
+  if (!oid) return;
+  if (priorityLabels.has(oid)) priorityLabels.delete(oid);
+  else priorityLabels.add(oid);
+  api.storage.local.set({ priorityLabels: [...priorityLabels] }, () => renderLabels());
+});
 // ── Debug box toggle ─────────────────────────────────────────────────────────
 document.getElementById("btnToggleDebug").addEventListener("click", () => {
   const box    = document.getElementById("debugBox");

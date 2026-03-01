@@ -107,11 +107,22 @@
     .stamp-img { width: 266px; height: 100%; object-fit: contain; object-position: center right; }
     .stamp-placeholder { width: 266px; border: 1px dashed #ccc; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #bbb; text-align: center; }
 
-    .label-sender { font-size: 8px; color: #777; white-space: normal; overflow: hidden; border-bottom: 0.5px solid #eee; padding-bottom: 3px; margin-bottom: 4px; line-height: 1.35; }
-    .label-recipient { font-size: 16px; color: #111; line-height: 1.6; flex: 1; }
+    .label-sender { font-size: 8px; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 0.5px solid #eee; padding-bottom: 3px; margin-bottom: 4px; line-height: 1.35; }
+    .label-sender .sender-name { display: inline; font-weight: 600; }
+    .label-sender .sender-addr { display: inline; }
+    .label-sender .sender-addr::before { content: " · "; }
+    .label-recipient { font-size: 16px; color: #111; line-height: 1.6; flex: 1; min-height: 0; overflow: hidden; }
     .label-recipient .name { font-weight: 700; font-size: 20px; display: block; margin-bottom: 2px; }
     .label-recipient div { display: block; }
-    .label-order { font-size: 7px; color: #bbb; text-align: right; margin-top: 4px; flex-shrink: 0; }
+    .label-order { font-size: 7px; color: #bbb; display: flex; justify-content: space-between; align-items: center; margin-top: 4px; flex-shrink: 0; }
+    .label-pri-toggle { padding: 2px 8px; font-size: 9px; border: 1px solid #d0d0d0; border-radius: 4px; background: #f8f8f8; color: #aaa; cursor: pointer; line-height: 1.5; white-space: nowrap; flex-shrink: 0; }
+    .label-pri-toggle:hover { background: #fff8dc; border-color: #d4a017; color: #8a6800; }
+    .label.priority { border-color: #d4a017 !important; box-shadow: 0 0 0 2px #d4a01744, 0 2px 8px rgba(0,0,0,0.3) !important; }
+    .label.priority .label-pri-toggle { background: #fff8dc; border-color: #d4a017; color: #8a6800; font-weight: 700; }
+    .priority-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid #2e4057; }
+    .priority-section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .priority-section-header .pri-title { font-size: 13px; font-weight: 700; color: #d4a017; }
+    .priority-section-header .hint { font-size: 11px; color: #8a9bb5; }
 
     /* ── PRINT: DK-11208 = 90mm × 38mm ── */
     @media print {
@@ -133,10 +144,15 @@
       body:not(.a4-mode) .label-right { width: 45mm; }
       body:not(.a4-mode) .stamp-img { width: 45mm; max-height: 35mm; object-fit: contain; object-position: center right; }
       body:not(.a4-mode) .stamp-placeholder { width: 45mm; height: 33mm; font-size: 6pt; }
-      body:not(.a4-mode) .label-sender { font-size: 5.5pt; color: #555 !important; padding-bottom: 1mm; margin-bottom: 1mm; white-space: normal; line-height: 1.3; }
-      body:not(.a4-mode) .label-recipient { font-size: 10pt; color: #000 !important; line-height: 1.3; }
-      body:not(.a4-mode) .label-recipient .name { font-size: 12pt; }
+      body:not(.a4-mode) .label-sender { font-size: 5pt; color: #555 !important; padding-bottom: 0.8mm; margin-bottom: 0.8mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+      body:not(.a4-mode) .label-sender .sender-name { display: inline; font-weight: 600; }
+      body:not(.a4-mode) .label-sender .sender-addr { display: inline; }
+      body:not(.a4-mode) .label-sender .sender-addr::before { content: " · "; }
+      body:not(.a4-mode) .label-recipient { font-size: 9pt; color: #000 !important; line-height: 1.2; }
+      body:not(.a4-mode) .label-recipient .name { font-size: 11pt; }
       body:not(.a4-mode) .label-order { font-size: 5pt; color: #aaa !important; }
+      body:not(.a4-mode) .label-pri-toggle { display: none !important; }
+      body:not(.a4-mode) .label.priority { border: none !important; box-shadow: none !important; }
 
       /* ── A4 mode: 4 labels per A4 page in a centred 2×2 grid ── */
       body.a4-mode .label-grid { display: block; margin: 0; padding: 0; }
@@ -176,9 +192,15 @@
       body.a4-mode .label-right { width: 45mm; }
       body.a4-mode .stamp-img { width: 45mm; max-height: 35mm; object-fit: contain; object-position: center right; }
       body.a4-mode .stamp-placeholder { width: 45mm; height: 33mm; font-size: 6pt; }
-      body.a4-mode .label-sender { font-size: 5.5pt; color: #555 !important; padding-bottom: 1mm; margin-bottom: 1mm; white-space: normal; line-height: 1.3; }
-      body.a4-mode .label-recipient { font-size: 10pt; color: #000 !important; line-height: 1.3; }
+      body.a4-mode .label-sender { font-size: 5pt; color: #555 !important; padding-bottom: 0.8mm; margin-bottom: 0.8mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+      body.a4-mode .label-sender .sender-name { display: inline; font-weight: 600; }
+      body.a4-mode .label-sender .sender-addr { display: inline; }
+      body.a4-mode .label-sender .sender-addr::before { content: " · "; }
+      body.a4-mode .label-recipient { font-size: 9pt; color: #000 !important; line-height: 1.2; }
+      body.a4-mode .label-recipient .name { font-size: 11pt; }
       body.a4-mode .label-order { font-size: 5pt; color: #aaa !important; }
+      body.a4-mode .label-pri-toggle { display: none !important; }
+      body.a4-mode .label.priority { border: none !important; box-shadow: none !important; }
     }
   </style>
 </head>
@@ -228,6 +250,28 @@
       <div class="stamp-debug-wrap">
         <label>🔍 Erste Marke — Vorschau:</label>
         <img id="stampDebugImg" alt="Stamp preview"/>
+      </div>
+    </div>
+
+    <div class="priority-section">
+      <div class="priority-section-header">
+        <span class="pri-title">⚡ Priorität-Marken</span>
+        <span class="hint">Zweite Markenreihe für beschleunigten Versand — Etiketten unten mit ⚡ als Priorität markieren</span>
+      </div>
+      <div class="stamp-row">
+        <label class="file-label" for="pdfPriorityInput">📄 PDF hochladen…</label>
+        <input type="file" id="pdfPriorityInput" accept="application/pdf"/>
+        <span id="pdfPriorityStatus">Noch kein PDF geladen</span>
+        <button class="btn btn-clear" id="btnClearPriorityStamps">✕ Marken löschen</button>
+      </div>
+      <div class="offset-row">
+        <label>🎯 Erste verwendete Marke (Seite):</label>
+        <input type="number" id="priorityStampOffset" min="1" max="99" value="1"/>
+        <span class="hint">Wird nach dem Drucken automatisch angepasst.</span>
+      </div>
+      <div>
+        <div class="stamp-track" id="priorityStampTrack"></div>
+        <div id="priorityStampTrackSummary"></div>
       </div>
     </div>
   </div>
