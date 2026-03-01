@@ -1,6 +1,6 @@
 {
   "name": "cm-porto-labeler",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "description": "Firefox addon — scrapes paid Cardmarket orders and prints DK-11208 address labels with Deutsche Post Internetmarke stamps",
   "private": true,
   "scripts": {
