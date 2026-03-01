@@ -4,6 +4,7 @@
 const api = (typeof browser !== "undefined") ? browser : chrome;
 let stampImages         = [];
 let priorityStampImages = [];        // stamps for priority / express shipments
+let priorityTrackingNumbers = [];    // parallel array of tracking strings (or null)
 let allResults          = [];
 let a4Mode              = false;
 let activeFilter        = null;      // null = all; Set of 0-based indices when filtered
@@ -27,7 +28,8 @@ log("1. Script loaded");
 
 // ── Load persisted data from storage ─────────────────────────────────────────
 api.storage.local.get(["cachedResults", "returnAddress", "stampImages", "stampOffset",
-                        "priorityStampImages", "priorityStampOffset", "priorityLabels"], (data) => {
+                        "priorityStampImages", "priorityStampOffset", "priorityLabels",
+                        "priorityTrackingNumbers"], (data) => {
   log("2. Storage loaded");
 
   if (data.returnAddress) {
@@ -59,6 +61,10 @@ api.storage.local.get(["cachedResults", "returnAddress", "stampImages", "stampOf
     log(`3b. ${priorityStampImages.length} priority stamps from storage`);
     updatePriorityStampTrack();
   }
+  if (data.priorityTrackingNumbers && data.priorityTrackingNumbers.length > 0) {
+    priorityTrackingNumbers = data.priorityTrackingNumbers;
+    log(`3b2. ${priorityTrackingNumbers.filter(Boolean).length} tracking numbers restored`);
+  }
   if (data.priorityLabels && data.priorityLabels.length > 0) {
     priorityLabels = new Set(data.priorityLabels.map(String));
     log(`3c. ${priorityLabels.size} priority label IDs restored`);
@@ -76,10 +82,13 @@ api.storage.local.get(["cachedResults", "returnAddress", "stampImages", "stampOf
 });
 
 // ── PDF extraction helper ─────────────────────────────────────────────────────
-// Loads a PDF, renders each page as a cropped stamp PNG, calls onDone(images[]).
-function loadPdfStamps(file, statusElId, onDone) {
+// opts: { cropParams: CROP_STD, extractText: false }
+// onDone(images, trackingNums) — trackingNums is null unless extractText:true
+function loadPdfStamps(file, statusElId, opts, onDone) {
   if (!file || typeof pdfjsLib === "undefined") return;
-  const statusEl = document.getElementById(statusElId);
+  const cropParams  = (opts && opts.cropParams)  || CROP_STD;
+  const extractText = !!(opts && opts.extractText);
+  const statusEl    = document.getElementById(statusElId);
   log(`PDF: ${file.name}`);
   statusEl.textContent = "⏳ Verarbeite PDF…";
 
@@ -90,7 +99,8 @@ function loadPdfStamps(file, statusElId, onDone) {
       log(`PDF has ${pdf.numPages} pages`);
       statusEl.textContent = `⏳ Rendere ${pdf.numPages} Seiten…`;
 
-      const images = new Array(pdf.numPages);
+      const images      = new Array(pdf.numPages);
+      const trackingNums = extractText ? new Array(pdf.numPages).fill(null) : null;
       let rendered = 0;
 
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
@@ -101,13 +111,33 @@ function loadPdfStamps(file, statusElId, onDone) {
           canvas.width   = viewport.width;
           canvas.height  = viewport.height;
 
-          page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise.then(() => {
-            images[pageNum - 1] = cropStampFromPage(canvas).toDataURL("image/png");
+          const renderP = page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise
+            .then(() => {
+              images[pageNum - 1] = cropStampFromPage(canvas, cropParams).toDataURL("image/png");
+              log(`Page ${pageNum} rendered`);
+            });
+
+          // Tracking number: join all text items and regex-match Deutsche Post hex pattern
+          // Pattern: XX XXXX XXXX  XX XXXX XXXX  (e.g. "A0 05F4 BF82  00 0000 137D")
+          const textP = extractText
+            ? page.getTextContent().then(content => {
+                const text = content.items.map(i => i.str).join(" ");
+                const m = text.match(
+                  /\b([0-9A-F]{2})\s+([0-9A-F]{4})\s+([0-9A-F]{4})\s+([0-9A-F]{2})\s+([0-9A-F]{4})\s+([0-9A-F]{4})\b/i
+                );
+                if (m) {
+                  trackingNums[pageNum - 1] =
+                    `${m[1]} ${m[2]} ${m[3]}  ${m[4]} ${m[5]} ${m[6]}`.toUpperCase();
+                  log(`Page ${pageNum} tracking: ${trackingNums[pageNum - 1]}`);
+                }
+              })
+            : Promise.resolve();
+
+          Promise.all([renderP, textP]).then(() => {
             rendered++;
-            log(`Page ${pageNum} rendered (${rendered}/${pdf.numPages})`);
             if (rendered === pdf.numPages) {
               statusEl.textContent = `✅ ${images.length} Briefmarken extrahiert`;
-              onDone(images);
+              onDone(images, trackingNums);
             }
           });
         });
@@ -122,7 +152,7 @@ function loadPdfStamps(file, statusElId, onDone) {
 
 // ── Standard stamp PDF ────────────────────────────────────────────────────────
 document.getElementById("pdfInput").addEventListener("change", (e) => {
-  loadPdfStamps(e.target.files[0], "pdfStatus", (images) => {
+  loadPdfStamps(e.target.files[0], "pdfStatus", null, (images) => {
     stampImages = images;
     api.storage.local.set({ stampImages }, () => {
       document.getElementById("stampOffset").value = 1;
@@ -137,33 +167,36 @@ document.getElementById("pdfInput").addEventListener("change", (e) => {
 
 // ── Priority stamp PDF ────────────────────────────────────────────────────────
 document.getElementById("pdfPriorityInput").addEventListener("change", (e) => {
-  loadPdfStamps(e.target.files[0], "pdfPriorityStatus", (images) => {
-    priorityStampImages = images;
-    api.storage.local.set({ priorityStampImages }, () => {
-      document.getElementById("priorityStampOffset").value = 1;
-      api.storage.local.set({ priorityStampOffset: 1 });
-      updatePriorityStampTrack();
-      renderLabels();
-    });
-  });
+  loadPdfStamps(e.target.files[0], "pdfPriorityStatus",
+    { cropParams: CROP_PRI, extractText: true },
+    (images, trackingNums) => {
+      priorityStampImages     = images;
+      priorityTrackingNumbers = trackingNums || [];
+      api.storage.local.set({ priorityStampImages, priorityTrackingNumbers }, () => {
+        document.getElementById("priorityStampOffset").value = 1;
+        api.storage.local.set({ priorityStampOffset: 1 });
+        updatePriorityStampTrack();
+        renderLabels();
+      });
+    }
+  );
 });
 
 // ── Crop stamp from full Deutsche Post Internetmarke page ─────────────────────
-// The PDF page is A6 landscape. The barcode sits on the left, the Deutsche Post
-// logo + text on the right. Together the stamp content occupies roughly:
-//   x: 27 %–72 %  →  cropX=0.27, cropW=0.45
-//   y:  3 %–65 %  →  cropY=0.03, cropH=0.62
-// Adjust CROP if your PDFs have a different layout.
-const CROP = { x: 0.27, y: 0.03, w: 0.45, h: 0.62 };
+// Standard Internetmarke: barcode left, DP logo+text right  → capture right half
+// Priority Einschreiben:  large "R" emblem extends further left → wider capture
+const CROP_STD = { x: 0.27, y: 0.03, w: 0.45, h: 0.62 };
+const CROP_PRI = { x: 0.08, y: 0.02, w: 0.72, h: 0.66 };
 
-function cropStampFromPage(canvas) {
+function cropStampFromPage(canvas, cropParams) {
+  const c = cropParams || CROP_STD;
   const W = canvas.width;
   const H = canvas.height;
 
-  const cropX = Math.round(W * CROP.x);
-  const cropY = Math.round(H * CROP.y);
-  const cropW = Math.round(W * CROP.w);
-  const cropH = Math.round(H * CROP.h);
+  const cropX = Math.round(W * c.x);
+  const cropY = Math.round(H * c.y);
+  const cropW = Math.round(W * c.w);
+  const cropH = Math.round(H * c.h);
 
   const out = document.createElement("canvas");
   out.width  = cropW;
@@ -285,6 +318,23 @@ function updatePriorityStampTrack() {
     num.className = "st-num";
     num.textContent = i + 1;
     thumb.appendChild(num);
+
+    // Copy tracking number button (priority stamps only)
+    const tn = priorityTrackingNumbers[i];
+    if (tn) {
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "st-copy-btn";
+      copyBtn.type      = "button";
+      copyBtn.textContent = "📋";
+      copyBtn.title     = `Trackingnummer kopieren: ${tn}`;
+      copyBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(tn);
+        copyBtn.textContent = "✓";
+        setTimeout(() => { copyBtn.textContent = "📋"; }, 1400);
+      });
+      thumb.appendChild(copyBtn);
+    }
 
     thumb.style.cursor = "pointer";
     thumb.addEventListener("click", () => {
@@ -604,8 +654,9 @@ document.getElementById("btnClearStamps").addEventListener("click", () => {
 });
 
 document.getElementById("btnClearPriorityStamps").addEventListener("click", () => {
-  priorityStampImages = [];
-  api.storage.local.remove("priorityStampImages", () => {
+  priorityStampImages     = [];
+  priorityTrackingNumbers = [];
+  api.storage.local.remove(["priorityStampImages", "priorityTrackingNumbers"], () => {
     updatePriorityStampTrack();
     renderLabels();
   });
