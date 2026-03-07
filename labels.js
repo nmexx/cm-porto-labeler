@@ -570,7 +570,10 @@ function buildLabel(o, ra, idx, stampIdx, isPriority) {
     sAddr.textContent = `${ra.street}, ${ra.city}`;
     sender.appendChild(sName);
     sender.appendChild(sAddr);
-    left.appendChild(sender);
+    // Attach sender as a full-width header on the label (not inside .label-left),
+    // so it spans the entire label width — critical for priority labels where the
+    // stamp column is wide and the left column would otherwise be too narrow.
+    label.appendChild(sender);
   }
 
   const recipient = document.createElement("div");
