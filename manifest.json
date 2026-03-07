@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Cardmarket Order Exporter",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "Scrapes paid Cardmarket orders and exports buyer addresses to CSV + prints Brother DK-11208 (38×90mm) labels with Deutsche Post Internetmarke stamps",
 
   "permissions": [
