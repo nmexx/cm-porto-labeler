@@ -1,8 +1,9 @@
 # Node
 node_modules/
 
-# web-ext build output
+# web-ext build output (.zip stays local; .xpi signed builds are committed)
 web-ext-artifacts/
+!web-ext-artifacts/*.xpi
 
 # OS
 .DS_Store
