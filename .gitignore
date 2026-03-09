@@ -2,8 +2,7 @@
 node_modules/
 
 # web-ext build output (.zip stays local; .xpi signed builds are committed)
-web-ext-artifacts/
-!web-ext-artifacts/*.xpi
+web-ext-artifacts/*.zip
 
 # OS
 .DS_Store
